@@ -3,6 +3,12 @@ import os
 from tqdm import tqdm
 import time
 from PIL import Image
+import sys
+import numpy as np
+import pandas as pd
+from pathlib import Path
+sys.path.append('/kaggle/input/sentence-transformers-222/sentence-transformers')
+from sentence_transformers import SentenceTransformer, models
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -28,7 +34,7 @@ class CLIP_Dataset(Dataset):
 
     def __getitem__(self, idx):
         image = Image.open(self.image_paths[idx]).convert("RGB")
-        processed_image = self.preprocess(image).to(device)
+        processed_image = self.preprocess(image)
         caption = self.captions[idx]
         return processed_image, caption
 
@@ -41,7 +47,7 @@ def setup_blip_model():
     return blip_processor, blip_model
 
 
-def set_up_clip_model():
+def set_up_clip_model(device):
     
     # setup clip model
     clip_model = open_clip.create_model('ViT-H-14', precision='fp16' if device == 'cuda' else 'fp32')
@@ -57,12 +63,6 @@ def set_up_clip_model():
     return clip_model, clip_tokenizer, clip_preprocess
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-blip_processor, blip_model = setup_blip_model()
-clip_model, clip_tokenizer, clip_preprocess = set_up_clip_model()
-
-
 def load_labels(file_path):
 
     with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -71,7 +71,7 @@ def load_labels(file_path):
     return labels
 
 
-def load_labels_and_features(label_dir):
+def load_labels_and_features(label_dir, device):
 
     mediums_labels = load_labels(f"{label_dir}mediums.txt")
     movements_labels = load_labels(f"{label_dir}movements.txt")
@@ -105,9 +105,9 @@ def truncate_to_fit(text, tokenize):
     return new_text
 
 
-def interrogate(image_features, caption, label_dir):
+def interrogate(image_features, caption, clip_tokenizer, label_dir, device):
 
-    labels_and_features = load_labels_and_features(label_dir) 
+    labels_and_features = load_labels_and_features(label_dir, device) 
     mediums_labels = labels_and_features["labels"]["medium"]
     movements_labels = labels_and_features["labels"]["movements"]
     flavors_labels = labels_and_features["labels"]["flavors"]
@@ -130,7 +130,25 @@ def interrogate(image_features, caption, label_dir):
     return truncate_to_fit(prompt, clip_tokenizer)
 
 
+def get_prompt_embeddings(comp_path):
+    prompts = pd.read_csv(comp_path / 'prompts.csv', index_col='imgId')
+    prompts.head(7)
+
+    # 7 * 384(feature_dim)这么多行
+    sample_submission = pd.read_csv(comp_path / 'sample_submission.csv', index_col='imgId_eId')
+    sample_submission.head()
+    
+    st_model = SentenceTransformer('/kaggle/input/sentence-transformers-222/all-MiniLM-L6-v2')
+    prompt_embeddings = st_model.encode(prompts['prompt']).flatten()
+    
+    assert np.all(np.isclose(sample_submission['val'].values, prompt_embeddings, atol=1e-07))
+
+
 def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    blip_processor, blip_model = setup_blip_model()
+    clip_model, clip_tokenizer, clip_preprocess = set_up_clip_model(device)
     # 要搞清楚这个label是怎么来的
     label_dir = "/kaggle/input/skt-clip-interrogator/labels/CLIP-ViT-H-14-laion2B-s32B-b79K/"
     images_root = './images'
@@ -171,18 +189,21 @@ def main():
     pred_prompts = []
 
     for batch in tqdm(clip_data_loader):
-
+        
         processed_images, captions = batch
+        processed_images = processed_images.to(device)
         
         with torch.no_grad(), torch.cuda.amp.autocast():
             image_features = clip_model.encode_image(processed_images)
 
         for image_feature, caption in zip(image_features, captions):
-            prompt = interrogate(image_feature, caption, label_dir)
+            prompt = interrogate(image_feature, caption, clip_tokenizer, label_dir, device)
             pred_prompts.append(prompt)
             
     print("--- %s seconds ---" % (time.time() - start_time))
     print(pred_prompts)
+
+    get_prompt_embeddings(Path("/root/autodl-nas/yuyan/kaggle_image2prompt"))
     
 
 if __name__ == "__main__":
