@@ -1,9 +1,7 @@
 import open_clip
 
 
-def set_up_clip_model(
-    device, model_name="ViT-H-14", 
-    model_path="/kaggle/input/skt-clip-interrogator/skt-clip-interrogator/models/CLIP-ViT-H-14-laion2B-s32B-b79K/open_clip_pytorch_model.bin"):
+def set_up_clip_model(model_name, model_path, device):
     
     clip_model = open_clip.create_model(model_name, precision="fp16" if device == "cuda" else "fp32")
     open_clip.load_checkpoint(clip_model, model_path)

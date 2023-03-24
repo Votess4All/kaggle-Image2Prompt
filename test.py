@@ -5,7 +5,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from model.blip import setup_blip_model
+from model.blip import setup_blip_model, get_images_captions_from_blip
 from model.clip import set_up_clip_model
 from model.sentence_transformer import set_up_stmodel
 from utils import load_labels_and_features, truncate_to_fit
@@ -20,7 +20,10 @@ class CFG:
     label_dir = "/kaggle/input/skt-clip-interrogator/skt-clip-interrogator/labels/CLIP-ViT-H-14-laion2B-s32B-b79K/"
     batch_size = 128
     blip_caption_gen_kwargs = {"max_length": 20, "min_length": 5}
+    blip_model_path = "/kaggle/input/blip-pretrained-model/blip-image-captioning-large"
     st_model_path = "/kaggle/input/sentence-transformers-222/all-MiniLM-L6-v2"
+    clip_model_name = "ViT-H-14", 
+    clip_model_path = "/kaggle/input/skt-clip-interrogator/skt-clip-interrogator/models/CLIP-ViT-H-14-laion2B-s32B-b79K/open_clip_pytorch_model.bin"
     
 
 class ImgDataset(Dataset):
@@ -62,31 +65,6 @@ def interrogate(image_features, caption, clip_tokenizer, label_dir, device):
         prompt = f"{caption}, {medium}, {movement}, {flaves}"
 
     return truncate_to_fit(prompt, clip_tokenizer)
-
-
-def get_images_captions(model, processor, image_paths, device, batch_size, gen_kwargs):
-    
-    model.to(device)
-
-    blip_data_loader = DataLoader(image_paths, batch_size=batch_size, shuffle=False)
-    blip_captions = []
-
-    for batch in tqdm(blip_data_loader):
-
-        images = []
-        for image_path in batch:
-            i_image = Image.open(image_path).convert("RGB")
-            images.append(i_image)
-        
-        pixel_values = processor(images=images, return_tensors="pt").pixel_values.to(device)
-        out = model.generate(pixel_values=pixel_values, **gen_kwargs)
-        captions = processor.batch_decode(out, skip_special_tokens=True)
-
-        blip_captions.extend(captions)
-        
-    model.to("cpu")
-    
-    return blip_captions 
     
 
 def get_pred_prompts(model, processor, tokenizer, image_paths, captions, device, label_dir, batch_size):
@@ -110,11 +88,11 @@ def get_pred_prompts(model, processor, tokenizer, image_paths, captions, device,
             prompt = interrogate(image_feature, caption, tokenizer, label_dir, device)
             pred_prompts.append(prompt)
     
-
     return pred_prompts
 
 
 def encode_prompts_with_stmodel(prompts):
+    # [id_0: fea0, id_1: fea1, ..., id_383: fea383]
     st_model = set_up_stmodel(CFG.st_model_path)
     prompt_embeddings = st_model.encode(prompts['prompt']).flatten()
     
@@ -128,10 +106,10 @@ def main():
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    blip_processor, blip_model = setup_blip_model()
-    clip_model, clip_tokenizer, clip_preprocess = set_up_clip_model(device)
+    blip_processor, blip_model = setup_blip_model(CFG.blip_model_path)
+    clip_model, clip_tokenizer, clip_preprocess = set_up_clip_model(CFG.clip_model_name, CFG.clip_model_path, device)
 
-    blip_captions = get_images_captions(
+    blip_captions = get_images_captions_from_blip(
         blip_model, blip_processor, image_paths, device, 
         CFG.batch_size, CFG.blip_caption_gen_kwargs) 
 
@@ -140,6 +118,7 @@ def main():
         image_paths, blip_captions, device, CFG.label_dir, CFG.batch_size) 
     
     prompts_embeds = encode_prompts_with_stmodel(pred_prompts)
+
 
 if __name__ == "__main__":
     main()
