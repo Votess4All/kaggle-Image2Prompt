@@ -41,8 +41,8 @@ class CLIP_Dataset(Dataset):
 
 def setup_blip_model():
     # setup blip model
-    blip_processor = AutoProcessor.from_pretrained("/kaggle/input/blip-image-captioning-large")
-    blip_model = BlipForConditionalGeneration.from_pretrained("/kaggle/input/blip-image-captioning-large")
+    blip_processor = AutoProcessor.from_pretrained("/kaggle/input/blip-pretrained-model/blip-image-captioning-large")
+    blip_model = BlipForConditionalGeneration.from_pretrained("/kaggle/input/blip-pretrained-model/blip-image-captioning-large")
     
     return blip_processor, blip_model
 
@@ -51,7 +51,7 @@ def set_up_clip_model(device):
     
     # setup clip model
     clip_model = open_clip.create_model('ViT-H-14', precision='fp16' if device == 'cuda' else 'fp32')
-    open_clip.load_checkpoint(clip_model, "/kaggle/input/skt-clip-interrogator/models/CLIP-ViT-H-14-laion2B-s32B-b79K/open_clip_pytorch_model.bin")
+    open_clip.load_checkpoint(clip_model, "/kaggle/input/skt-clip-interrogator/skt-clip-interrogator/models/CLIP-ViT-H-14-laion2B-s32B-b79K/open_clip_pytorch_model.bin")
     clip_tokenizer = open_clip.get_tokenizer('ViT-H-14')
     clip_preprocess = open_clip.image_transform(
         clip_model.visual.image_size,
@@ -150,7 +150,7 @@ def main():
     blip_processor, blip_model = setup_blip_model()
     clip_model, clip_tokenizer, clip_preprocess = set_up_clip_model(device)
     # 要搞清楚这个label是怎么来的
-    label_dir = "/kaggle/input/skt-clip-interrogator/labels/CLIP-ViT-H-14-laion2B-s32B-b79K/"
+    label_dir = "/kaggle/input/skt-clip-interrogator/skt-clip-interrogator/labels/CLIP-ViT-H-14-laion2B-s32B-b79K/"
     images_root = './images'
     image_ids = [i.split('.')[0] for i in os.listdir(images_root)]
 
